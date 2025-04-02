@@ -1,46 +1,12 @@
 <?php
 require_once 'config.php';
-requireLogin();
-
-$pdo = conectarDB();
-$stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
-$stmt->execute([$_SESSION['user_id']]);
-$user = $stmt->fetch();
-
-$mensagem = '';
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $nome = $_POST['nome'] ?? '';
-    $email = $_POST['email'] ?? '';
-    $senha_atual = $_POST['senha_atual'] ?? '';
-    $nova_senha = $_POST['nova_senha'] ?? '';
-    
-    if (!empty($senha_atual)) {
-        if (password_verify($senha_atual, $user['password'])) {
-            if (!empty($nova_senha)) {
-                $stmt = $pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
-                $stmt->execute([password_hash($nova_senha, PASSWORD_DEFAULT), $_SESSION['user_id']]);
-                $mensagem = "Senha atualizada com sucesso!";
-            }
-        } else {
-            $mensagem = "Senha atual incorreta!";
-        }
-    }
-    
-    if (!empty($nome) && !empty($email)) {
-        $stmt = $pdo->prepare("UPDATE users SET nome = ?, email = ? WHERE id = ?");
-        $stmt->execute([$nome, $email, $_SESSION['user_id']]);
-        $mensagem = "Dados atualizados com sucesso!";
-        $user['nome'] = $nome;
-        $user['email'] = $email;
-    }
-}
 ?>
 <!DOCTYPE html>
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minha Conta - MyLogin System</title>
+    <title>MyLogin System - Sistema de Login Seguro</title>
     <style>
         :root {
             --primary-color: #2c3e50;
@@ -54,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            background: var(--light-bg);
+            line-height: 1.6;
             color: var(--text-color);
         }
 
@@ -93,53 +59,66 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             transition: background-color 0.3s;
         }
 
-        .container {
-            max-width: 800px;
-            margin: 2rem auto;
-            padding: 0 20px;
+        .nav-links a:hover {
+            background-color: var(--secondary-color);
         }
 
-        .card {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 2rem;
-            margin-bottom: 2rem;
+        .hero {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            padding: 4rem 0;
+            text-align: center;
         }
 
-        .card h2 {
-            color: var(--primary-color);
-            margin-top: 0;
-        }
-
-        .form-group {
+        .hero h1 {
+            font-size: 2.5rem;
             margin-bottom: 1rem;
         }
 
-        .form-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: var(--primary-color);
+        .hero p {
+            font-size: 1.2rem;
+            max-width: 600px;
+            margin: 0 auto 2rem;
         }
 
-        .form-control {
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 1rem;
+        .features {
+            padding: 4rem 0;
+            background-color: var(--light-bg);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .feature-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .feature-card h3 {
+            color: var(--primary-color);
+            margin-bottom: 1rem;
         }
 
         .btn {
             display: inline-block;
-            padding: 10px 20px;
+            padding: 12px 24px;
             background-color: var(--secondary-color);
             color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
             text-decoration: none;
-            font-size: 1rem;
+            border-radius: 4px;
             transition: background-color 0.3s;
         }
 
@@ -147,34 +126,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             background-color: #2980b9;
         }
 
-        .btn-danger {
+        .btn-accent {
             background-color: var(--accent-color);
         }
 
-        .btn-danger:hover {
+        .btn-accent:hover {
             background-color: #c0392b;
         }
 
-        .message {
-            padding: 1rem;
-            margin-bottom: 1rem;
-            border-radius: 4px;
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        .user-avatar {
-            width: 100px;
-            height: 100px;
+        footer {
             background-color: var(--primary-color);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             color: white;
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
+            padding: 2rem 0;
+            text-align: center;
         }
 
         @media (max-width: 768px) {
@@ -182,73 +146,71 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 flex-direction: column;
                 gap: 1rem;
             }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-container">
-            <a href="landing.php" class="nav-brand">MyLogin System</a>
+            <a href="index.php" class="nav-brand">MyLogin System</a>
             <div class="nav-links">
-                <a href="landing.php">Início</a>
-                <a href="logout.php" class="btn btn-danger">Sair</a>
+                <?php if (estaLogado()): ?>
+                    <a href="dashboard.php">Minha Conta</a>
+                    <a href="logout.php" class="btn btn-accent">Sair</a>
+                <?php else: ?>
+                    <a href="login.php">Entrar</a>
+                    <a href="register.php" class="btn">Criar Conta</a>
+                <?php endif; ?>
             </div>
         </div>
     </nav>
 
-    <div class="container">
-        <?php if ($mensagem): ?>
-            <div class="message"><?php echo $mensagem; ?></div>
-        <?php endif; ?>
+    <section class="hero">
+        <div class="container">
+            <h1>Sistema de Login Seguro e Moderno</h1>
+            <p>Uma solução completa para autenticação de usuários com recursos avançados de segurança e uma interface intuitiva.</p>
+            <?php if (!estaLogado()): ?>
+                <a href="register.php" class="btn">Começar Agora</a>
+            <?php endif; ?>
+        </div>
+    </section>
 
-        <div class="card">
-            <div style="text-align: center;">
-                <div class="user-avatar">
-                    <?php echo strtoupper(substr($user['nome'], 0, 1)); ?>
+    <section class="features">
+        <div class="container">
+            <h2 style="text-align: center; color: var(--primary-color);">Recursos</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <h3>Segurança Avançada</h3>
+                    <p>Proteção contra injeção SQL, hash seguro de senhas e validação de dados.</p>
                 </div>
-                <h2>Bem-vindo(a), <?php echo htmlspecialchars($user['nome']); ?>!</h2>
+                <div class="feature-card">
+                    <h3>Interface Moderna</h3>
+                    <p>Design responsivo e intuitivo para a melhor experiência do usuário.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Gerenciamento de Perfil</h3>
+                    <p>Visualize e gerencie suas informações pessoais facilmente.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>Fácil Integração</h3>
+                    <p>Sistema modular e bem documentado, pronto para ser integrado ao seu projeto.</p>
+                </div>
             </div>
         </div>
+    </section>
 
-        <div class="card">
-            <h2>Atualizar Perfil</h2>
-            <form method="POST">
-                <div class="form-group">
-                    <label for="nome">Nome:</label>
-                    <input type="text" id="nome" name="nome" class="form-control" value="<?php echo htmlspecialchars($user['nome']); ?>" required>
-                </div>
-
-                <div class="form-group">
-                    <label for="email">Email:</label>
-                    <input type="email" id="email" name="email" class="form-control" value="<?php echo htmlspecialchars($user['email']); ?>" required>
-                </div>
-
-                <button type="submit" class="btn">Atualizar Dados</button>
-            </form>
+    <footer>
+        <div class="container">
+            <p>&copy; <?php echo date('Y'); ?> MyLogin System. Todos os direitos reservados.</p>
         </div>
-
-        <div class="card">
-            <h2>Alterar Senha</h2>
-            <form method="POST">
-                <div class="form-group">
-                    <label for="senha_atual">Senha Atual:</label>
-                    <input type="password" id="senha_atual" name="senha_atual" class="form-control" required>
-                </div>
-
-                <div class="form-group">
-                    <label for="nova_senha">Nova Senha:</label>
-                    <input type="password" id="nova_senha" name="nova_senha" class="form-control" required>
-                </div>
-
-                <button type="submit" class="btn">Alterar Senha</button>
-            </form>
-        </div>
-
-        <div class="card">
-            <h2>Informações da Conta</h2>
-            <p><strong>Usuário:</strong> <?php echo htmlspecialchars($user['username']); ?></p>
-            <p><strong>Data de registro:</strong> <?php echo date('d/m/Y H:i', strtotime($user['data_registro'])); ?></p>
-        </div>
-    </div>
+    </footer>
 </body>
 </html> 

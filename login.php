@@ -1,27 +1,70 @@
 <?php
+/**
+ * Página de Login
+ * 
+ * Este arquivo implementa a autenticação de usuários com:
+ * - Validação client-side usando JavaScript
+ * - Validação server-side usando PHP
+ * - Proteção CSRF
+ * - Feedback visual para o usuário
+ */
+
 require_once 'config.php';
+
+// Gera token CSRF para proteção contra ataques
+$csrf_token = gerarCSRFToken();
 
 $erro = '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $username = $_POST['username'] ?? '';
-    $password = $_POST['password'] ?? '';
-    
-    if (empty($username) || empty($password)) {
-        $erro = "Preencha todos os campos";
+    // Validação do token CSRF
+    if (!validarCSRFToken($_POST['csrf_token'] ?? '')) {
+        $erro = "Erro de validação do formulário";
+        logError("Tentativa de login com token CSRF inválido: " . $_SERVER['REMOTE_ADDR']);
     } else {
-        $pdo = conectarDB();
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
-        $stmt->execute([$username]);
-        $user = $stmt->fetch();
+        $username = limparDados($_POST['username'] ?? '');
+        $password = $_POST['password'] ?? '';
         
-        if ($user && password_verify($password, $user['password'])) {
-            $_SESSION['user_id'] = $user['id'];
-            $_SESSION['user_name'] = $user['nome'];
-            header('Location: index.php');
-            exit;
+        if (empty($username) || empty($password)) {
+            $erro = "Preencha todos os campos";
         } else {
-            $erro = "Usuário ou senha inválidos";
+            // Verifica tentativas de login
+            $check_attempts = verificarTentativasLogin($username);
+            if ($check_attempts !== true) {
+                $erro = $check_attempts;
+            } else {
+                $pdo = conectarDB();
+                $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
+                $stmt->execute([$username]);
+                $user = $stmt->fetch();
+                
+                if ($user && password_verify($password, $user['password'])) {
+                    $_SESSION['user_id'] = $user['id'];
+                    $_SESSION['user_name'] = $user['nome'];
+                    
+                    // Registra o login bem-sucedido
+                    $stmt = $pdo->prepare("
+                        INSERT INTO access_logs (user_id, action, ip_address, user_agent) 
+                        VALUES (?, 'login', ?, ?)
+                    ");
+                    $stmt->execute([$user['id'], $_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_USER_AGENT']]);
+                    
+                    header('Location: dashboard.php');
+                    exit;
+                } else {
+                    incrementarTentativasLogin($username);
+                    $erro = "Usuário ou senha inválidos";
+                    
+                    // Registra a tentativa falha
+                    if ($user) {
+                        $stmt = $pdo->prepare("
+                            INSERT INTO access_logs (user_id, action, ip_address, user_agent) 
+                            VALUES (?, 'failed_login', ?, ?)
+                        ");
+                        $stmt->execute([$user['id'], $_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_USER_AGENT']]);
+                    }
+                }
+            }
         }
     }
 }
@@ -151,6 +194,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             font-size: 1.5rem;
             font-weight: bold;
         }
+
+        .form-control.error {
+            border-color: var(--accent-color);
+        }
+        .field-error {
+            color: var(--accent-color);
+            font-size: 0.8rem;
+            margin-top: 0.25rem;
+        }
     </style>
 </head>
 <body>
@@ -167,15 +219,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <div class="error"><?php echo $erro; ?></div>
         <?php endif; ?>
         
-        <form method="POST">
+        <form method="POST" id="loginForm" onsubmit="return validateForm()">
+            <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
+            
             <div class="form-group">
                 <label for="username">Usuário:</label>
-                <input type="text" id="username" name="username" class="form-control" required>
+                <input type="text" id="username" name="username" class="form-control" required
+                       oninput="validateField('username')" onblur="validateField('username')">
+                <div id="username-error" class="field-error"></div>
             </div>
             
             <div class="form-group">
                 <label for="password">Senha:</label>
-                <input type="password" id="password" name="password" class="form-control" required>
+                <input type="password" id="password" name="password" class="form-control" required
+                       oninput="validateField('password')" onblur="validateField('password')">
+                <div id="password-error" class="field-error"></div>
             </div>
             
             <button type="submit" class="btn">Entrar</button>
@@ -185,5 +243,44 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <a href="register.php">Criar conta</a>
         </div>
     </div>
+
+    <script>
+    /**
+     * Validação client-side dos campos do formulário
+     * Fornece feedback visual imediato ao usuário
+     */
+    function validateField(fieldName) {
+        const field = document.getElementById(fieldName);
+        const errorDiv = document.getElementById(fieldName + '-error');
+        let error = '';
+
+        switch (fieldName) {
+            case 'username':
+                if (field.value.length < 3) {
+                    error = 'O usuário deve ter pelo menos 3 caracteres';
+                }
+                break;
+            case 'password':
+                if (field.value.length < 6) {
+                    error = 'A senha deve ter pelo menos 6 caracteres';
+                }
+                break;
+        }
+
+        field.classList.toggle('error', error !== '');
+        errorDiv.textContent = error;
+        return error === '';
+    }
+
+    function validateForm() {
+        let isValid = true;
+        ['username', 'password'].forEach(field => {
+            if (!validateField(field)) {
+                isValid = false;
+            }
+        });
+        return isValid;
+    }
+    </script>
 </body>
 </html> 
