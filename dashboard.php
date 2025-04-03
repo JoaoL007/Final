@@ -3,6 +3,29 @@ require_once 'config.php';
 requireLogin();
 
 $pdo = conectarDB();
+
+// Verifica se a coluna foto_perfil já existe na tabela users
+$column_exists = false;
+try {
+    $stmt = $pdo->prepare("SELECT foto_perfil FROM users LIMIT 1");
+    $stmt->execute();
+    $column_exists = true;
+} catch (PDOException $e) {
+    // A coluna não existe
+    $column_exists = false;
+}
+
+// Adiciona a coluna foto_perfil se ela não existir
+if (!$column_exists) {
+    try {
+        $pdo->exec("ALTER TABLE users ADD COLUMN foto_perfil VARCHAR(255) DEFAULT NULL");
+        $column_exists = true;
+    } catch (PDOException $e) {
+        // Se ocorrer um erro ao adicionar a coluna, apenas registra
+        error_log("Não foi possível adicionar a coluna foto_perfil: " . $e->getMessage());
+    }
+}
+
 $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
 $stmt->execute([$_SESSION['user_id']]);
 $user = $stmt->fetch();
@@ -13,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $email = $_POST['email'] ?? '';
     $senha_atual = $_POST['senha_atual'] ?? '';
     $nova_senha = $_POST['nova_senha'] ?? '';
-    
+
     if (!empty($senha_atual)) {
         if (password_verify($senha_atual, $user['password'])) {
             if (!empty($nova_senha)) {
@@ -25,10 +48,59 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $mensagem = "Senha atual incorreta!";
         }
     }
-    
+
     if (!empty($nome) && !empty($email)) {
-        $stmt = $pdo->prepare("UPDATE users SET nome = ?, email = ? WHERE id = ?");
-        $stmt->execute([$nome, $email, $_SESSION['user_id']]);
+        // Verifica se há upload de foto
+        if (isset($_FILES['foto_perfil']) && $_FILES['foto_perfil']['error'] == 0 && $column_exists) {
+            $foto = $_FILES['foto_perfil'];
+            $ext = pathinfo($foto['name'], PATHINFO_EXTENSION);
+            $permitidos = ['jpg', 'jpeg', 'png'];
+
+            if (in_array(strtolower($ext), $permitidos)) {
+                $nome_arquivo = 'uploads/perfil_' . $_SESSION['user_id'] . '.' . $ext;
+                $diretorio = dirname(__FILE__) . '/uploads/';
+
+                // Cria o diretório se não existir
+                if (!is_dir($diretorio)) {
+                    mkdir($diretorio, 0755, true);
+                }
+
+                if (move_uploaded_file($foto['tmp_name'], dirname(__FILE__) . '/' . $nome_arquivo)) {
+                    if ($column_exists) {
+                        $stmt = $pdo->prepare("UPDATE users SET nome = ?, email = ?, foto_perfil = ? WHERE id = ?");
+                        $stmt->execute([$nome, $email, $nome_arquivo, $_SESSION['user_id']]);
+                        $user['foto_perfil'] = $nome_arquivo;
+                    } else {
+                        $stmt = $pdo->prepare("UPDATE users SET nome = ?, email = ? WHERE id = ?");
+                        $stmt->execute([$nome, $email, $_SESSION['user_id']]);
+                    }
+                } else {
+                    $mensagem = "Erro ao salvar a foto de perfil.";
+                    $stmt = $pdo->prepare("UPDATE users SET nome = ?, email = ? WHERE id = ?");
+                    $stmt->execute([$nome, $email, $_SESSION['user_id']]);
+                }
+            } else {
+                $mensagem = "Formato de arquivo não permitido. Use JPG, JPEG ou PNG.";
+                $stmt = $pdo->prepare("UPDATE users SET nome = ?, email = ? WHERE id = ?");
+                $stmt->execute([$nome, $email, $_SESSION['user_id']]);
+            }
+        } else if (isset($_POST['remover_foto']) && $_POST['remover_foto'] == '1' && $column_exists) {
+            // Remover foto de perfil
+            if (isset($user['foto_perfil']) && !empty($user['foto_perfil']) && file_exists($user['foto_perfil'])) {
+                // Tenta remover o arquivo físico
+                @unlink($user['foto_perfil']);
+            }
+
+            // Atualiza o banco de dados para remover a referência
+            $stmt = $pdo->prepare("UPDATE users SET nome = ?, email = ?, foto_perfil = NULL WHERE id = ?");
+            $stmt->execute([$nome, $email, $_SESSION['user_id']]);
+            $user['foto_perfil'] = null;
+            $mensagem = "Foto de perfil removida com sucesso!";
+        } else {
+            $stmt = $pdo->prepare("UPDATE users SET nome = ?, email = ? WHERE id = ?");
+            $stmt->execute([$nome, $email, $_SESSION['user_id']]);
+        }
+
         $mensagem = "Dados atualizados com sucesso!";
         $user['nome'] = $nome;
         $user['email'] = $email;
@@ -37,154 +109,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 ?>
 <!DOCTYPE html>
 <html lang="pt">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Minha Conta - MyLogin System</title>
-    <style>
-        :root {
-            --primary-color: #2c3e50;
-            --secondary-color: #3498db;
-            --accent-color: #e74c3c;
-            --text-color: #333;
-            --light-bg: #f5f5f5;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            background: var(--light-bg);
-            color: var(--text-color);
-        }
-
-        .navbar {
-            background-color: var(--primary-color);
-            padding: 1rem 0;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-
-        .nav-container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .nav-brand {
-            color: white;
-            text-decoration: none;
-            font-size: 1.5rem;
-            font-weight: bold;
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 20px;
-        }
-
-        .nav-links a {
-            color: white;
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            transition: background-color 0.3s;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 2rem auto;
-            padding: 0 20px;
-        }
-
-        .card {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 2rem;
-            margin-bottom: 2rem;
-        }
-
-        .card h2 {
-            color: var(--primary-color);
-            margin-top: 0;
-        }
-
-        .form-group {
-            margin-bottom: 1rem;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: var(--primary-color);
-        }
-
-        .form-control {
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 1rem;
-        }
-
-        .btn {
-            display: inline-block;
-            padding: 10px 20px;
-            background-color: var(--secondary-color);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            text-decoration: none;
-            font-size: 1rem;
-            transition: background-color 0.3s;
-        }
-
-        .btn:hover {
-            background-color: #2980b9;
-        }
-
-        .btn-danger {
-            background-color: var(--accent-color);
-        }
-
-        .btn-danger:hover {
-            background-color: #c0392b;
-        }
-
-        .message {
-            padding: 1rem;
-            margin-bottom: 1rem;
-            border-radius: 4px;
-            background-color: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        .user-avatar {
-            width: 100px;
-            height: 100px;
-            background-color: var(--primary-color);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-        }
-
-        @media (max-width: 768px) {
-            .nav-container {
-                flex-direction: column;
-                gap: 1rem;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <nav class="navbar">
         <div class="nav-container">
@@ -204,7 +136,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <div class="card">
             <div style="text-align: center;">
                 <div class="user-avatar">
-                    <?php echo strtoupper(substr($user['nome'], 0, 1)); ?>
+                    <?php if (isset($user['foto_perfil']) && !empty($user['foto_perfil']) && file_exists($user['foto_perfil'])): ?>
+                        <img src="<?php echo htmlspecialchars($user['foto_perfil']); ?>" alt="Foto de perfil">
+                    <?php else: ?>
+                        <?php echo strtoupper(substr($user['nome'], 0, 1)); ?>
+                    <?php endif; ?>
                 </div>
                 <h2>Bem-vindo(a), <?php echo htmlspecialchars($user['nome']); ?>!</h2>
             </div>
@@ -212,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         <div class="card">
             <h2>Atualizar Perfil</h2>
-            <form method="POST">
+            <form method="POST" enctype="multipart/form-data">
                 <div class="form-group">
                     <label for="nome">Nome:</label>
                     <input type="text" id="nome" name="nome" class="form-control" value="<?php echo htmlspecialchars($user['nome']); ?>" required>
@@ -221,6 +157,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <div class="form-group">
                     <label for="email">Email:</label>
                     <input type="email" id="email" name="email" class="form-control" value="<?php echo htmlspecialchars($user['email']); ?>" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="foto_perfil">Foto de Perfil:</label>
+                    <?php if (isset($user['foto_perfil']) && !empty($user['foto_perfil']) && file_exists($user['foto_perfil'])): ?>
+                        <div class="current-photo">
+                            <img src="<?php echo htmlspecialchars($user['foto_perfil']); ?>" alt="Foto atual">
+                            <p style="margin: 5px 0;">Foto atual</p>
+                            <label class="remove-photo-container">
+                                <input type="checkbox" name="remover_foto" value="1" id="remover_foto">
+                                <span>Remover foto atual</span>
+                            </label>
+                        </div>
+                    <?php endif; ?>
+                    <p style="margin-bottom: 5px; font-size: 0.9em;">Para atualizar sua foto, selecione uma nova imagem abaixo:</p>
+                    <input type="file" id="foto_perfil" name="foto_perfil" class="form-control">
                 </div>
 
                 <button type="submit" class="btn">Atualizar Dados</button>
@@ -251,4 +203,5 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         </div>
     </div>
 </body>
-</html> 
+
+</html>
